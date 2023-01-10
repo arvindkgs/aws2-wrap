@@ -11,26 +11,24 @@ The script provides the following capabilities:
 * Exporting the AWS SSO credentials
 * Use the credentials via .aws/config
 * Assume a role via AWS SSO
-* Checks if aws sso session is expired, if yes, opens `aws sso login` and automates entering username and password
-* If aws sso session is active then refreshes the token, so it gets extended
 
 Please note that the script is called `aws2-wrap` to show that it works with AWS CLI v2, even though the CLI tool is no longer called `aws2`.
 
-## Prerequisites
+## Install
 
-1. Install chromedriver
-	1. Downloads specific chromedriver depending on current chrome version installed from https://chromedriver.chromium.org/downloads
-	2. Extract and add to PATH
-	3. Add to ~/.zshrc for MAC (or ~/.bashrc in Linux) - `export PATH=$PATH:/path/to/chromedriver`
-
-2. Set env vars - `AWS_SSO_USERNAME` and `AWS_SSO_PASSWORD` to your aws sso username and password as -
-	`export AWS_SSO_USERNAME=xyz; export AWS_SSO_PASSWORD=xyz`
-
-## Install using `pip`
+### Using `pip`
 
 <https://pypi.org/project/aws2-wrap>
 
-`pip3 install aws2-wrap==1.2.8`
+```
+pip3 install aws2-wrap
+```
+
+### Using `brew`
+
+```
+brew install aws2-wrap
+```
 
 ## Run a command using AWS SSO credentials
 
@@ -49,10 +47,6 @@ Examples:
 `AWS_PROFILE=MySSOProfile aws2-wrap terraform plan`
 
 If you are having problems with the use of quotes in the command, you may find one of the other methods works better for you.
-
-## Refresh credentials in $AWS_SHARED_CREDENTIALS_FILE without touching the $AWS_CONFIG_FILE
-
-`aws2-wrap --generate_cred --credentialsfile $AWS_SHARED_CREDENTIALS_FILE`
 
 ## Generate a temporary profile in the $AWS_CONFIG_FILE and $AWS_SHARED_CREDENTIALS_FILE file
 
@@ -127,6 +121,8 @@ and `<command>` will be run under `role-to-be-assumed`.
 
 Contributions are more than welcome, particularly if you are able to expand on the test code. Please ensure, though, that before you submit a Pull Request, you run `make test` to ensure that your changes don't break any of the existing tests and `make pylint` to ensure that the linter is happy. Please note that the CI/CD pylint test *may* use different pylint rules from your own local setup.
 
+Please also note that `make pylint` will only report errors. You *may* want to explicitly run `python3 -m pylint setup.py aws2wrap`
+
 ## Credits
 
-Thanks to @l1n, @sodul, @damian-bisignano, @flyinprogrammer, @abeluck, @topu, @bigwheel, @krabbit, @jscook2345, @hieki, @blazdivjak, @fukushun1994, @johann8384, @ppezoldt, @atwoodjw, @lummish, @life36-vinny, @lukemassa and @axelri for their contributions.
+Thanks to @nitrocode, @chenrui333, @l1n, @sodul, @damian-bisignano, @flyinprogrammer, @abeluck, @topu, @bigwheel, @krabbit, @jscook2345, @hieki, @blazdivjak, @fukushun1994, @johann8384, @ppezoldt, @atwoodjw, @lummish, @life36-vinny, @lukemassa and @axelri for their contributions.
