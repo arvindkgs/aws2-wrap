@@ -25,17 +25,12 @@ import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone  # pylint: disable=wrong-import-order
-from typing import Any, Dict, List, Optional, Union, Tuple  # pylint: disable=wrong-import-order
-from subprocess import STDOUT, check_output
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-import time
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.expected_conditions import visibility_of_element_located, element_to_be_clickable, presence_of_element_located
-from selenium.webdriver.support.wait import WebDriverWait
+from typing import (Any, Dict, List,  # pylint: disable=wrong-import-order
+                    Optional, Tuple, Union)
 
 import psutil
 
+from aws2wrap.version import __version__
 
 ProfileDef = Dict[str, Union[str, Dict[str, Any]]]
 
@@ -55,7 +50,9 @@ def process_arguments(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--export", action="store_true", help="export credentials as environment variables")
+        "--export",
+        action="store_true",
+        help="export credentials as environment variables")
     group.add_argument(
         "--generate",
         action="store_true",
@@ -86,7 +83,12 @@ def process_arguments(argv: List[str]) -> argparse.Namespace:
         "--credentialsfile", action="store", default="~/.aws/credentials",
         help="the credentials file to append resulting credentials")
     parser.add_argument(
-        "command", action="store", nargs=argparse.REMAINDER, help="a command that you want to wrap")
+        "command", action="store", nargs=argparse.REMAINDER,
+        help="a command that you want to wrap")
+    parser.add_argument(
+        "--version", "-v", action="version",
+        version=f"%(prog)s {__version__}",
+        help="get version")
     args = parser.parse_args(argv[1:])
     return args
 
@@ -103,6 +105,8 @@ def retrieve_attribute(profile: Dict[str, Any], tag: str) -> Any:
         Aws2WrapError: The tag was not present in the profile.
     """
     if tag not in profile:
+        if "sso_session" in profile and tag in profile["sso_session"]:
+            return profile["sso_session"][tag]
         raise Aws2WrapError(f"{tag!r} not found in profile: {profile!r}")
     return profile[tag]
 
@@ -135,7 +139,7 @@ def read_aws_config() -> Tuple[configparser.ConfigParser, str]:
     return config, config_path
 
 
-def retrieve_profile(profile_name: str) -> ProfileDef:
+def retrieve_profile(profile_name: str, profile_type: str = "profile") -> ProfileDef:
     """Find the AWS Config profile matching the specified profile name.
 
     Args:
@@ -147,14 +151,14 @@ def retrieve_profile(profile_name: str) -> ProfileDef:
     """
     config, config_path = read_aws_config()
 
-    if profile_name == "default":
-        section_name = "default"
-    else:
-        section_name = f"profile {profile_name}"
-
     # Look for the required profile
-    if section_name not in config:
-        raise Aws2WrapError(f"Cannot find profile {profile_name!r} in {config_path}")
+    look_for = f"{profile_type} {profile_name}"
+    if look_for in config:
+        section_name = look_for
+    elif profile_name in config:
+        section_name = profile_name
+    else:
+        raise Aws2WrapError(f"Cannot find {profile_type} {profile_name!r} in {config_path}")
     # Retrieve the values as dict
     profile: ProfileDef = dict(config[section_name])
 
@@ -165,6 +169,13 @@ def retrieve_profile(profile_name: str) -> ProfileDef:
         # Retrieve source_profile recursively and append it to profile dict
         profile["source_profile"] = retrieve_profile(
             retrieve_attribute(profile, "source_profile")
+        )
+
+    if "sso_session" in profile:
+        # Retrieve sso_session recursively and append it to profile dict
+        profile["sso_session"] = retrieve_profile(
+            retrieve_attribute(profile, "sso_session"),
+            profile_type="sso-session"
         )
 
     return profile
@@ -225,41 +236,7 @@ def retrieve_token(sso_start_url: str, sso_region: str, profile_name: str) -> st
         token = retrieve_token_from_file(cachefile, sso_start_url, sso_region)
         if token is not None:
             return token
-    # raise Aws2WrapError(f"Please login with 'aws sso login --profile={profile_name}'")
-    # login to aws sso
-    try:
-        output = check_output(['aws', 'sso', 'login'], stderr=STDOUT, bufsize=0, universal_newlines=True, env=dict(os.environ, BROWSER='/bin/echo'), timeout=3)
-    except subprocess.TimeoutExpired as err:
-        username = os.environ.get('AWS_SSO_USERNAME')
-        password = os.environ.get('AWS_SSO_PASSWORD')
-        text = err.output.decode('utf-8')
-        m = re.search('Then enter the code\:\\n\\n(.+?)\n', text)
-        if m:
-            user_code = m.group(1)
-        m = re.search('open the following URL\:\\n\\n(.+?)\n\n', text)
-        if m:
-            sso_url = m.group(1)
-        aws_sso_url = sso_url + '?user_code=' + user_code
-        print('Logging in to SSO')
-        options = Options()
-        driver = webdriver.Chrome(options=options)
-        driver.get(aws_sso_url)
-        WebDriverWait(driver, 60).until(visibility_of_element_located((By.ID, 'okta-signin-username')))
-        driver.find_element_by_id('okta-signin-username').send_keys(username)
-        driver.find_element_by_id('okta-signin-password').send_keys(password)
-        driver.find_element_by_id('okta-signin-submit').click()
-        WebDriverWait(driver, 100).until(element_to_be_clickable(
-            (By.XPATH, '//input[@type="submit"]'))).click()
-        WebDriverWait(driver, 60).until(element_to_be_clickable((By.ID, 'cli_login_button'))).click()
-        driver.close()
-        print("Done sso login")
-        cachedir_path = os.path.abspath(os.path.expanduser("~/.aws/sso/cache"))
-        cachedir = pathlib.Path(cachedir_path)
-        for cachefile in cachedir.iterdir():
-            token = retrieve_token_from_file(cachefile, sso_start_url, sso_region)
-            if token is not None:
-                return token
-        raise Aws2WrapError(f"Please login with 'aws sso login --profile={profile_name}'")
+    raise Aws2WrapError(f"Please login with 'aws sso login --profile={profile_name}'")
 
 
 def get_role_credentials(profile: ProfileDef) -> Dict[str, Any]:
@@ -285,7 +262,7 @@ def get_role_credentials(profile: ProfileDef) -> Dict[str, Any]:
     # currently a special version and this script is trying to avoid needing any extra
     # packages.
     try:
-        result = subprocess.check_output(
+        result = subprocess.run(
             [
                 "aws", "sso", "get-role-credentials",
                 "--profile", profile_name,
@@ -295,14 +272,17 @@ def get_role_credentials(profile: ProfileDef) -> Dict[str, Any]:
                 "--region", sso_region,
                 "--output", "json",
                 "--no-cli-auto-prompt"
-            ]
+            ],
+            check=True,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE
         )
     except subprocess.CalledProcessError as error:
         if error.stderr is not None:
             print(error.stderr.decode(), file=sys.stderr)
         raise Aws2WrapError(f"Please login with 'aws sso login --profile={profile_name}'") from None
 
-    output = json.loads(result)
+    output = json.loads(result.stdout)
     # convert expiration from float value to isoformat string
     output["roleCredentials"]["expiration"] = datetime.fromtimestamp(
         float(output["roleCredentials"]["expiration"])/1000, tz=timezone.utc).isoformat()
@@ -407,7 +387,6 @@ def process_cred_generation(  # pylint: disable=too-many-arguments
     }
     with open(credentialsfile, mode="w", encoding="utf-8") as file:
         config.write(file)
-    print(f"Credentials written to {credentialsfile}")
 
     if configfile:
         config = configparser.ConfigParser()
